@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "8123:8123"  # HTTP интерфейс
+      - "9000:9000"  # Native интерфейс
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - CLICKHOUSE_DB=weather_db
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9001:9001"  # Консоль
+      - "9002:9000"  # API
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9002/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  prefect-server:
+    image: prefecthq/prefect:2.14-python3.11
+    container_name: prefect-server
+    ports:
+      - "4200:4200"
+    command: prefect server start --host 0.0.0.0
+    environment:
+      - PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://postgres:postgres@db:5432/prefect
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=prefect
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  prefect-agent:
+    image: prefecthq/prefect:2.14-python3.11
+    container_name: prefect-agent
+    command: prefect agent start --pool default-agent-pool
+    environment:
+      - PREFECT_API_URL=http://prefect-server:4200/api
+    depends_on:
+      - prefect-server
+      - clickhouse
+      - minio
+
+volumes:
+  clickhouse_data:
+  minio_data:
+  postgres_data:
