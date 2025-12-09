@@ -1,0 +1,6 @@
+# requirements.txt
+httpx
+prefect==2.14.21 
+minio
+clickhouse-connect
+python-dotenv
